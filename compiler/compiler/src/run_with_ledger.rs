@@ -120,11 +120,14 @@ pub fn run_with_ledger(config: &Config, case_sets: &[Vec<Case>]) -> Result<Vec<V
     // Store all of the non-genesis blocks created during set up.
     let mut blocks = Vec::new();
 
+    println!("before `from`");
     // Initialize a `VM` and construct the genesis block. This should always succeed.
-    let genesis_block = VM::<CurrentNetwork, ConsensusMemory<CurrentNetwork>>::from(ConsensusStore::open(0).unwrap())
-        .unwrap()
-        .genesis_beacon(&genesis_private_key, &mut rng)
-        .unwrap();
+    let genesis_block =
+        VM::<CurrentNetwork, ConsensusMemory<CurrentNetwork>>::from(ConsensusStore::open(0).unwrap()).unwrap();
+
+    println!("before `genesis_beacon`");
+    let genesis_block = genesis_block.genesis_beacon(&genesis_private_key, &mut rng).unwrap();
+    println!("done genesis_beacon");
 
     // Initialize a `Ledger`. This should always succeed.
     let ledger =
@@ -135,7 +138,9 @@ pub fn run_with_ledger(config: &Config, case_sets: &[Vec<Case>]) -> Result<Vec<V
     let latest_consensus_version = ConsensusVersion::latest();
     let start_height =
         config.start_height.unwrap_or(CurrentNetwork::CONSENSUS_HEIGHT(latest_consensus_version).unwrap());
+    dbg!(&start_height);
     while ledger.latest_height() < start_height {
+        dbg!("block");
         let block = ledger
             .prepare_advance_to_next_beacon_block(&genesis_private_key, vec![], vec![], vec![], &mut rng)
             .map_err(|_| anyhow!("Failed to prepare advance to next beacon block"))?;

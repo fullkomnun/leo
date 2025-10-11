@@ -188,6 +188,7 @@ impl Compiler {
         self.statements_before_dce = output.statements_before;
         self.statements_after_dce = output.statements_after;
 
+        println!("{}", self.state.ast.ast);
         Ok(())
     }
 

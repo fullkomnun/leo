@@ -238,6 +238,7 @@ impl TypeCheckingVisitor<'_> {
         match ty {
             Type::Err => Type::Err,
             Type::Composite(ref struct_) => {
+                dbg!(&struct_);
                 // Retrieve the struct definition associated with `identifier`.
                 let Some(struct_) = self
                     .lookup_struct(struct_.program.or(self.scope_state.program_name), &struct_.path.absolute_path())
@@ -1100,6 +1101,17 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             _ => {}
         }
 
+        // TODO: do this the right way... this is too sloppy
+        let output_type = if let Some(program) = input.program {
+            if let Type::Composite(composite) = func.output_type {
+                Type::Composite(CompositeType { program: Some(program), ..composite })
+            } else {
+                func.output_type
+            }
+        } else {
+            func.output_type
+        };
+
         // Check that the call is not to an external `inline` function.
         if func.variant == Variant::Inline
             && input.program.is_some_and(|program| program != self.scope_state.program_name.unwrap())
@@ -1141,7 +1153,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
                 Some(Location::new(callee_program, callee_path.clone())),
                 true,
             ));
-            let fully_inferred_type = match &func.output_type {
+            let fully_inferred_type = match &output_type {
                 Type::Tuple(tup) => Type::Tuple(TupleType::new(
                     tup.elements()
                         .iter()
@@ -1153,7 +1165,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             };
             self.assert_and_return_type(fully_inferred_type, expected, input.span())
         } else {
-            self.assert_and_return_type(func.output_type, expected, input.span())
+            self.assert_and_return_type(output_type, expected, input.span())
         };
 
         // Check number of function arguments.
