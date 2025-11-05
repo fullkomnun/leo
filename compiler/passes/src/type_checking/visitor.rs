@@ -1134,9 +1134,7 @@ impl TypeCheckingVisitor<'_> {
                 // Check that the array length is valid.
 
                 if let Some(length) = array_type.length.as_u32() {
-                    if length == 0 {
-                        self.emit_err(TypeCheckerError::array_empty(span));
-                    } else if length > self.limits.max_array_elements as u32 {
+                    if length > self.limits.max_array_elements as u32 {
                         self.emit_err(TypeCheckerError::array_too_large(length, self.limits.max_array_elements, span));
                     }
                 } else if let Expression::Literal(_) = &*array_type.length {

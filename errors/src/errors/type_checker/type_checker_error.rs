@@ -1358,4 +1358,11 @@ create_messages!(
             "Consider reducing the number of output parameters. You might combine some parameters into a struct or refactor the {variant} to simplify its signature.".to_string()
         ),
     }
+
+    @formatted
+    empty_function_args {
+        args: (),
+        msg: format!("Cannot define a function with only empty parameters."),
+        help: None,
+    }
 );
