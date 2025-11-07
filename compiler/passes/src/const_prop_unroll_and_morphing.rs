@@ -45,7 +45,9 @@ impl Pass for ConstPropUnrollAndMorphing {
 
             let const_prop_output = ConstPropagation::do_pass((), state)?;
 
+            println!("before: {}", state.ast.ast);
             let monomorphization_output = Monomorphization::do_pass((), state)?;
+            println!("after: {}", state.ast.ast);
 
             // Clear the symbol table and create it again. This is important because after all the passes above run, the
             // program may have changed significantly (new functions may have been added, some functions may have been

@@ -19,14 +19,50 @@
 pub mod function_stub;
 pub use function_stub::*;
 
-use crate::{Composite, ConstDeclaration, Identifier, Indent, Mapping, NodeID, ProgramId};
+use crate::{Composite, ConstDeclaration, Identifier, Indent, Mapping, NodeID, Program, ProgramId};
 use leo_span::{Span, Symbol};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Stub {
+    FromLeo(Program),
+    FromAleo(AleoProgram),
+}
+
+impl Stub {
+    pub fn imports(&self) -> Box<dyn Iterator<Item = &Symbol> + '_> {
+        match self {
+            Stub::FromLeo(program) => Box::new(program.imports.iter().map(|(name, _)| name)),
+            Stub::FromAleo(aleo_program) => Box::new(aleo_program.imports.iter().map(|id| &id.name.name)),
+        }
+    }
+}
+
+impl fmt::Display for Stub {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Stub::FromLeo(program) => write!(f, "{program}"),
+            Stub::FromAleo(program) => write!(f, "{program}"),
+        }
+    }
+}
+
+impl From<Program> for Stub {
+    fn from(program: Program) -> Self {
+        Stub::FromLeo(program)
+    }
+}
+
+impl From<AleoProgram> for Stub {
+    fn from(program: AleoProgram) -> Self {
+        Stub::FromAleo(program)
+    }
+}
+
 /// Stores the Leo stub abstract syntax tree.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Stub {
+pub struct AleoProgram {
     /// A vector of imported programs.
     pub imports: Vec<ProgramId>,
     /// The stub id
@@ -43,7 +79,7 @@ pub struct Stub {
     pub span: Span,
 }
 
-impl Default for Stub {
+impl Default for AleoProgram {
     /// Constructs an empty program stub
     fn default() -> Self {
         Self {
@@ -61,7 +97,7 @@ impl Default for Stub {
     }
 }
 
-impl fmt::Display for Stub {
+impl fmt::Display for AleoProgram {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "stub {} {{", self.stub_id)?;
         for import in self.imports.iter() {

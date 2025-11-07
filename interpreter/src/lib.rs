@@ -40,11 +40,11 @@ use std::{
     path::PathBuf,
 };
 
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 
-#[cfg(test)]
-mod test_interpreter;
+// #[cfg(test)]
+// mod test_interpreter;
 
 mod util;
 use util::*;

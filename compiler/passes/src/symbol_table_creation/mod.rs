@@ -17,6 +17,7 @@
 use crate::{CompilerState, Pass, SymbolTable, VariableSymbol, VariableType};
 
 use leo_ast::{
+    AleoProgram,
     AstVisitor,
     Composite,
     ConstDeclaration,
@@ -31,7 +32,6 @@ use leo_ast::{
     ProgramScope,
     ProgramVisitor,
     StorageVariable,
-    Stub,
     Type,
     Variant,
 };
@@ -58,7 +58,6 @@ impl Pass for SymbolTableCreation {
             structs: IndexMap::new(),
             program_name: Symbol::intern(""),
             module: vec![],
-            is_stub: false,
         };
         visitor.visit_program(ast.as_repr());
         visitor.state.handler.last_err()?;
@@ -74,8 +73,6 @@ struct SymbolTableCreationVisitor<'a> {
     program_name: Symbol,
     /// The current module name.
     module: Vec<Symbol>,
-    /// Whether or not traversing stub.
-    is_stub: bool,
     /// The set of local structs that have been successfully visited.
     structs: IndexMap<Vec<Symbol>, Span>,
 }
@@ -113,7 +110,6 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
     fn visit_program_scope(&mut self, input: &ProgramScope) {
         // Set current program name
         self.program_name = input.program_id.name.name;
-        self.is_stub = false;
 
         // Visit the program scope
         input.consts.iter().for_each(|(_, c)| self.visit_const(c));
@@ -214,8 +210,7 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
         }
     }
 
-    fn visit_stub(&mut self, input: &Stub) {
-        self.is_stub = true;
+    fn visit_aleo_program(&mut self, input: &AleoProgram) {
         self.program_name = input.stub_id.name.name;
         input.functions.iter().for_each(|(_, c)| self.visit_function_stub(c));
         input.structs.iter().for_each(|(_, c)| self.visit_struct_stub(c));

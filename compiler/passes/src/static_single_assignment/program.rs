@@ -34,6 +34,8 @@ use leo_ast::{
     ProgramScopeConsumer,
     StatementConsumer,
     StructConsumer,
+    Stub,
+    StubConsumer,
 };
 use leo_span::{Symbol, sym};
 
@@ -150,12 +152,23 @@ impl ProgramConsumer for SsaFormingVisitor<'_> {
                 .into_iter()
                 .map(|(name, (import, span))| (name, (self.consume_program(import), span)))
                 .collect(),
-            stubs: input.stubs,
+            stubs: input.stubs.into_iter().map(|(name, stub)| (name, self.consume_stub(stub))).collect(),
             program_scopes: input
                 .program_scopes
                 .into_iter()
                 .map(|(name, scope)| (name, self.consume_program_scope(scope)))
                 .collect(),
+        }
+    }
+}
+
+impl StubConsumer for SsaFormingVisitor<'_> {
+    type Output = Stub;
+
+    fn consume_stub(&mut self, input: Stub) -> Self::Output {
+        match input {
+            Stub::FromLeo(program) => self.consume_program(program).into(),
+            Stub::FromAleo(_) => input,
         }
     }
 }

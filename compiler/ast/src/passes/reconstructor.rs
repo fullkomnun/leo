@@ -583,8 +583,8 @@ pub trait ProgramReconstructor: AstReconstructor {
         }
     }
 
-    fn reconstruct_stub(&mut self, input: Stub) -> Stub {
-        Stub {
+    fn reconstruct_aleo_program(&mut self, input: AleoProgram) -> AleoProgram {
+        AleoProgram {
             imports: input.imports,
             stub_id: input.stub_id,
             consts: input.consts,
@@ -592,6 +592,13 @@ pub trait ProgramReconstructor: AstReconstructor {
             mappings: input.mappings,
             functions: input.functions.into_iter().map(|(i, f)| (i, self.reconstruct_function_stub(f))).collect(),
             span: input.span,
+        }
+    }
+
+    fn reconstruct_stub(&mut self, input: Stub) -> Stub {
+        match input {
+            Stub::FromLeo(program) => self.reconstruct_program(program).into(),
+            Stub::FromAleo(aleo_program) => self.reconstruct_aleo_program(aleo_program).into(),
         }
     }
 

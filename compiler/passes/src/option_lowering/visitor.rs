@@ -33,7 +33,7 @@ pub struct OptionLoweringVisitor<'a> {
     // structs are to be inserted in the program scope.
     pub new_structs: IndexMap<Symbol, Composite>,
     // The reconstructed structs. These are the new versions of the existing structs in the program.
-    pub reconstructed_structs: IndexMap<Vec<Symbol>, Composite>,
+    pub reconstructed_structs: IndexMap<Location, Composite>,
 }
 
 impl OptionLoweringVisitor<'_> {
@@ -125,11 +125,12 @@ impl OptionLoweringVisitor<'_> {
         // for each type.
 
         // Instead of relying on the symbol table (which does not get updated in this pass), we rely on the set of
-        // reconstructed structs which is produced for all program scopes and all modules before doing anything else.
+        // reconstructed structs (local to this program) which is produced for all program scopes and all modules before
+        // doing anything else.
         let reconstructed_structs = &self.reconstructed_structs;
         let struct_lookup = |sym: &[Symbol]| {
             reconstructed_structs
-                .get(sym) // check the new version of existing structs
+                .get(&Location::new(self.program, sym.to_vec())) // check the new version of existing structs
                 .or_else(|| self.new_structs.get(sym.last().unwrap())) // check the newly produced structs
                 .expect("must exist by construction")
                 .members

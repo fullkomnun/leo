@@ -336,6 +336,15 @@ pub trait ProgramVisitor: AstVisitor {
         input.stubs.values().for_each(|stub| self.visit_stub(stub));
     }
 
+    fn visit_aleo_program(&mut self, _input: &AleoProgram) {}
+
+    fn visit_stub(&mut self, input: &Stub) {
+        match input {
+            Stub::FromLeo(program) => self.visit_program(program),
+            Stub::FromAleo(aleo_program) => self.visit_aleo_program(aleo_program),
+        }
+    }
+
     fn visit_program_scope(&mut self, input: &ProgramScope) {
         input.consts.iter().for_each(|(_, c)| self.visit_const(c));
         input.structs.iter().for_each(|(_, c)| self.visit_struct(c));
@@ -352,8 +361,6 @@ pub trait ProgramVisitor: AstVisitor {
         input.structs.iter().for_each(|(_, c)| self.visit_struct(c));
         input.functions.iter().for_each(|(_, c)| self.visit_function(c));
     }
-
-    fn visit_stub(&mut self, _input: &Stub) {}
 
     fn visit_import(&mut self, input: &Program) {
         self.visit_program(input)

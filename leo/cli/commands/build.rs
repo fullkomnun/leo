@@ -16,16 +16,16 @@
 
 use super::*;
 
-use leo_ast::{NetworkName, Stub};
+use leo_ast::{NetworkName, NodeBuilder, Program, Stub};
 use leo_compiler::{AstSnapshots, Compiler, CompilerOptions};
 use leo_errors::{CliError, UtilError};
 use leo_package::{Manifest, Package};
 use leo_span::Symbol;
 
-use snarkvm::prelude::{CanaryV0, Itertools, MainnetV0, Program, TestnetV0};
+use snarkvm::prelude::{CanaryV0, Itertools, MainnetV0, Program as SvmProgram, TestnetV0};
 
 use indexmap::IndexMap;
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 impl From<BuildOptions> for CompilerOptions {
     fn from(options: BuildOptions) -> Self {
@@ -136,14 +136,32 @@ fn handle_build(command: &LeoBuild, context: Context) -> Result<<LeoBuild as Com
 
     // Initialize error handler.
     let handler = Handler::default();
+    let node_builder = Rc::new(NodeBuilder::default());
 
     let mut stubs: IndexMap<Symbol, Stub> = IndexMap::new();
 
     for program in package.programs.iter() {
-        let (bytecode, build_path) = match &program.data {
+        match &program.data {
             leo_package::ProgramData::Bytecode(bytecode) => {
-                // This was a network dependency or local .aleo dependency, and we have its bytecode.
-                (bytecode.clone(), imports_directory.join(format!("{}.aleo", program.name)))
+                let build_path = imports_directory.join(format!("{}.aleo", program.name));
+
+                // Write the .aleo file.
+                std::fs::write(build_path, &bytecode).map_err(CliError::failed_to_load_instructions)?;
+
+                // Track the Stub.
+                let stub = match network {
+                    NetworkName::MainnetV0 => {
+                        leo_disassembler::disassemble_from_str::<MainnetV0>(program.name, &bytecode)
+                    }
+                    NetworkName::TestnetV0 => {
+                        leo_disassembler::disassemble_from_str::<TestnetV0>(program.name, &bytecode)
+                    }
+                    NetworkName::CanaryV0 => {
+                        leo_disassembler::disassemble_from_str::<CanaryV0>(program.name, &bytecode)
+                    }
+                }?;
+
+                stubs.insert(program.name, Stub::FromAleo(stub));
             }
             leo_package::ProgramData::SourcePath { directory, source } => {
                 // This is a local dependency, so we must compile it.
@@ -154,31 +172,25 @@ fn handle_build(command: &LeoBuild, context: Context) -> Result<<LeoBuild as Com
                 };
                 // Load the manifest in local dependency.
                 let source_dir = directory.join("src");
-                let bytecode = compile_leo_source_directory(
+                let (leo_program, bytecode) = compile_leo_source_directory(
                     source, // entry file
                     &source_dir,
                     program.name,
                     program.is_test,
                     &outputs_directory,
                     &handler,
+                    &node_builder,
                     command.options.clone(),
                     stubs.clone(),
                     network,
                 )?;
-                (bytecode, build_path)
+
+                // Write the .aleo file.
+                std::fs::write(build_path, &bytecode).map_err(CliError::failed_to_load_instructions)?;
+
+                stubs.insert(program.name, Stub::FromLeo(leo_program));
             }
-        };
-
-        // Write the .aleo file.
-        std::fs::write(build_path, &bytecode).map_err(CliError::failed_to_load_instructions)?;
-
-        // Track the Stub.
-        let stub = match network {
-            NetworkName::MainnetV0 => leo_disassembler::disassemble_from_str::<MainnetV0>(program.name, &bytecode),
-            NetworkName::TestnetV0 => leo_disassembler::disassemble_from_str::<TestnetV0>(program.name, &bytecode),
-            NetworkName::CanaryV0 => leo_disassembler::disassemble_from_str::<CanaryV0>(program.name, &bytecode),
-        }?;
-        stubs.insert(program.name, stub);
+        }
     }
 
     // SnarkVM expects to find a `program.json` file in the build directory, so make
@@ -207,15 +219,17 @@ fn compile_leo_source_directory(
     is_test: bool,
     output_path: &Path,
     handler: &Handler,
+    node_builder: &Rc<NodeBuilder>,
     options: BuildOptions,
     stubs: IndexMap<Symbol, Stub>,
     network: NetworkName,
-) -> Result<String> {
+) -> Result<(Program, String)> {
     // Create a new instance of the Leo compiler.
     let mut compiler = Compiler::new(
         Some(program_name.to_string()),
         is_test,
         handler.clone(),
+        Rc::clone(node_builder),
         output_path.to_path_buf(),
         Some(options.into()),
         stubs,
@@ -223,7 +237,7 @@ fn compile_leo_source_directory(
     );
 
     // Compile the Leo program into Aleo instructions.
-    let bytecode = compiler.compile_from_directory(entry_file_path, source_directory)?;
+    let (program, bytecode) = compiler.compile_from_directory(entry_file_path, source_directory)?;
 
     // Check the program size limit.
     use leo_package::MAX_PROGRAM_SIZE;
@@ -239,9 +253,9 @@ fn compile_leo_source_directory(
 
     // Get the AVM bytecode.
     let checksum: String = match network {
-        NetworkName::MainnetV0 => Program::<MainnetV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
-        NetworkName::TestnetV0 => Program::<TestnetV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
-        NetworkName::CanaryV0 => Program::<CanaryV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
+        NetworkName::MainnetV0 => SvmProgram::<MainnetV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
+        NetworkName::TestnetV0 => SvmProgram::<TestnetV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
+        NetworkName::CanaryV0 => SvmProgram::<CanaryV0>::from_str(&bytecode)?.to_checksum().iter().join(", "),
     };
 
     tracing::info!("    {} statements before dead code elimination.", compiler.statements_before_dce);
@@ -249,5 +263,5 @@ fn compile_leo_source_directory(
     tracing::info!("    The program checksum is: '[{checksum}]'.");
 
     tracing::info!("✅ Compiled '{program_name}.aleo' into Aleo instructions.");
-    Ok(bytecode)
+    Ok((program, bytecode))
 }

@@ -1180,6 +1180,47 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             self.visit_expression(argument, &Some(expected.type_().clone()));
         }
 
+        if func.variant == Variant::AsyncFunction {
+            let finalize_input_map = &mut self.async_function_input_types;
+
+            // Only proceed if *all* Future inputs have corresponding finalize entries.
+            let proceed = func.input.iter().all(|input| {
+                match &input.type_ {
+                    Type::Future(f) => {
+                        if let Some(loc) = f.location.as_ref() {
+                            finalize_input_map.get(loc).is_some()
+                        } else {
+                            false // location missing ⇒ can't proceed
+                        }
+                    }
+                    _ => true, // non-Future inputs are fine
+                }
+            });
+
+            if proceed {
+                let resolved_inputs: Vec<Type> = func
+                    .input
+                    .iter()
+                    .map(|input| match &input.type_ {
+                        Type::Future(f) => Type::Future(FutureType::new(
+                            finalize_input_map.get(f.location.as_ref().unwrap()).unwrap().clone(),
+                            f.location.clone(),
+                            true,
+                        )),
+                        _ => input.clone().type_,
+                    })
+                    .collect();
+
+                finalize_input_map.insert(
+                    Location::new(self.scope_state.program_name.unwrap(), vec![Symbol::intern(&format!(
+                        "finalize/{}",
+                        self.scope_state.function.unwrap()
+                    ))]),
+                    resolved_inputs,
+                );
+            }
+        }
+
         let (mut input_futures, mut inferred_finalize_inputs) = (Vec::new(), Vec::new());
         for (expected, argument) in func.input.iter().zip(input.arguments.iter()) {
             // Get the type of the expression. If the type is not known, do not attempt to attempt any further inference.
@@ -1385,7 +1426,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
         let type_ = Type::Composite(CompositeType {
             path: input.path.clone(),
             const_arguments: input.const_arguments.clone(),
-            program: None,
+            program: self.scope_state.program_name,
         });
         self.maybe_assert_type(&type_, additional, input.path.span());
 
@@ -1875,7 +1916,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
                 if t1 != Type::Err && t2 != Type::Err && !t1.eq_user(&t2) {
                     let op =
                         if matches!(input.variant, AssertVariant::AssertEq(..)) { "assert_eq" } else { "assert_neq" };
-                    self.emit_err(TypeCheckerError::operation_types_mismatch(op, t1, t2, input.span()));
+                    self.emit_err(TypeCheckerError::operation_types_mismatch(op, &t1, &t2, input.span()));
                 }
             }
         }

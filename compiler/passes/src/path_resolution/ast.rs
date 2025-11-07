@@ -43,7 +43,7 @@ impl AstReconstructor for PathResolutionVisitor<'_> {
                     .into_iter()
                     .map(|arg| self.reconstruct_expression(arg, &()).0)
                     .collect(),
-                ..input
+                program: if let Some(program) = input.program { Some(program) } else { Some(self.program) },
             }),
             Default::default(),
         )

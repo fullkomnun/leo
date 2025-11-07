@@ -16,11 +16,11 @@
 
 use crate::Compiler;
 
-use leo_ast::{NetworkName, Stub};
+use leo_ast::{NetworkName, NodeBuilder, Program, Stub};
 use leo_errors::{Handler, LeoError};
 use leo_span::{Symbol, source_map::FileName};
 
-use std::path::PathBuf;
+use std::{path::PathBuf, rc::Rc};
 
 use indexmap::IndexMap;
 
@@ -36,12 +36,14 @@ pub const MODULE_DELIMITER: &str = "// --- Next Module:";
 pub fn whole_compile(
     source: &str,
     handler: &Handler,
+    node_builder: &Rc<NodeBuilder>,
     import_stubs: IndexMap<Symbol, Stub>,
-) -> Result<(String, String), LeoError> {
+) -> Result<(Program, String, String), LeoError> {
     let mut compiler = Compiler::new(
         None,
         /* is_test */ false,
         handler.clone(),
+        node_builder.clone(),
         "/fakedirectory-wont-use".into(),
         None,
         import_stubs,
@@ -51,8 +53,8 @@ pub fn whole_compile(
     if !source.contains(MODULE_DELIMITER) {
         // Fast path: no modules
         let filename = FileName::Custom("compiler-test".into());
-        let bytecode = compiler.compile(source, filename.clone(), &Vec::new())?;
-        return Ok((bytecode, compiler.program_name.unwrap()));
+        let (program, bytecode) = compiler.compile(source, filename.clone(), &Vec::new())?;
+        return Ok((program, bytecode, compiler.program_name.unwrap()));
     }
 
     let mut main_source = String::new();
@@ -93,7 +95,7 @@ pub fn whole_compile(
         modules.iter().map(|(src, path)| (src.as_str(), FileName::Custom(path.to_string_lossy().into()))).collect();
 
     let filename = FileName::Custom("compiler-test".into());
-    let bytecode = compiler.compile(&main_source, filename, &module_refs)?;
+    let (program, bytecode) = compiler.compile(&main_source, filename, &module_refs)?;
 
-    Ok((bytecode, compiler.program_name.unwrap()))
+    Ok((program, bytecode, compiler.program_name.unwrap()))
 }
