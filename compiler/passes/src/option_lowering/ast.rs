@@ -62,8 +62,8 @@ impl leo_ast::AstReconstructor for OptionLoweringVisitor<'_> {
         (
             Type::Composite(CompositeType {
                 path: Path::from(Identifier::new(struct_name, self.state.node_builder.next_id())).into_absolute(),
-                const_arguments: vec![], // this is not a generic struct
-                program: None,           // current program
+                const_arguments: vec![],     // this is not a generic struct
+                program: Some(self.program), // current program
             }),
             Default::default(),
         )
@@ -419,7 +419,7 @@ impl leo_ast::AstReconstructor for OptionLoweringVisitor<'_> {
                     .state
                     .symbol_table
                     .lookup_record(&location)
-                    .or_else(|| self.state.symbol_table.lookup_struct(&composite.path.absolute_path()))
+                    .or_else(|| self.state.symbol_table.lookup_struct(&location))
                     .or_else(|| self.new_structs.get(&composite.path.identifier().name))
                     .expect("guaranteed by type checking");
 

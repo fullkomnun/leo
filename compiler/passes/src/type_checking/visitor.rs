@@ -1623,7 +1623,9 @@ impl TypeCheckingVisitor<'_> {
     pub fn lookup_struct(&mut self, program: Option<Symbol>, name: &[Symbol]) -> Option<Composite> {
         let record_comp =
             program.and_then(|prog| self.state.symbol_table.lookup_record(&Location::new(prog, name.to_vec())));
-        let comp = record_comp.or_else(|| self.state.symbol_table.lookup_struct(name));
+        let comp = record_comp.or_else(|| {
+            program.and_then(|prog| self.state.symbol_table.lookup_struct(&Location::new(prog, name.to_vec())))
+        });
         // Record the usage.
         if let Some(s) = comp {
             // If it's a struct or internal record, mark it used.

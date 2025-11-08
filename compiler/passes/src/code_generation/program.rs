@@ -71,7 +71,7 @@ impl<'a> CodeGeneratingVisitor<'a> {
         let lookup = |name: &[Symbol]| {
             self.state
                 .symbol_table
-                .lookup_struct(name)
+                .lookup_struct(&Location::new(this_program, name.to_vec()))
                 .or_else(|| self.state.symbol_table.lookup_record(&Location::new(this_program, name.to_vec())))
         };
 

@@ -828,7 +828,7 @@ impl Value {
         span: Span,
         node_builder: &NodeBuilder,
         ty: &Type,
-        struct_lookup: &dyn Fn(&[Symbol]) -> Vec<(Symbol, Type)>,
+        struct_lookup: &dyn Fn(&Location) -> Vec<(Symbol, Type)>,
     ) -> Option<Expression> {
         use crate::{Literal, TupleExpression, UnitExpression};
 
@@ -877,7 +877,7 @@ fn plaintext_to_expression(
     span: Span,
     node_builder: &NodeBuilder,
     ty: &Type,
-    struct_lookup: &dyn Fn(&[Symbol]) -> Vec<(Symbol, Type)>,
+    struct_lookup: &dyn Fn(&Location) -> Vec<(Symbol, Type)>,
 ) -> Option<Expression> {
     use crate::{ArrayExpression, Identifier, IntegerType, Literal, StructExpression, StructVariableInitializer};
 
@@ -925,7 +925,8 @@ fn plaintext_to_expression(
                 return None;
             };
             let symbols = composite_type.path.as_symbols();
-            let iter_members = struct_lookup(&symbols);
+            let iter_members =
+                struct_lookup(&Location::new(composite_type.program.expect("must have been resolved by now"), symbols));
             StructExpression {
                 span,
                 id,

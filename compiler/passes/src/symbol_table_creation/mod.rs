@@ -139,7 +139,7 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
         // Allow up to one local redefinition for each external struct.
         let full_name = self.module.iter().cloned().chain(std::iter::once(input.name())).collect::<Vec<Symbol>>();
 
-        if !input.is_record {
+        /*if !input.is_record {
             if let Some(prev_span) = self.structs.get(&full_name) {
                 // The struct already existed
                 return self.state.handler.emit_err(SymbolTable::emit_shadow_error(
@@ -150,7 +150,7 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
             }
 
             self.structs.insert(full_name.clone(), input.identifier.span);
-        }
+        }*/
 
         if input.is_record {
             // While records are not allowed in submodules, we stll use their full name in the records table.
@@ -161,7 +161,9 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
             {
                 self.state.handler.emit_err(err);
             }
-        } else if let Err(err) = self.state.symbol_table.insert_struct(self.program_name, &full_name, input.clone()) {
+        } else if let Err(err) =
+            self.state.symbol_table.insert_struct(Location::new(self.program_name, full_name), input.clone())
+        {
             self.state.handler.emit_err(err);
         }
     }
@@ -256,7 +258,7 @@ impl ProgramVisitor for SymbolTableCreationVisitor<'_> {
                 self.state.handler.emit_err(err);
             }
         } else if let Err(err) =
-            self.state.symbol_table.insert_struct(self.program_name, &[input.name()], input.clone())
+            self.state.symbol_table.insert_struct(Location::new(self.program_name, vec![input.name()]), input.clone())
         {
             self.state.handler.emit_err(err);
         }

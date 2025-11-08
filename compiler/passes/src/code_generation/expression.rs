@@ -783,7 +783,9 @@ impl CodeGeneratingVisitor<'_> {
                     .state
                     .symbol_table
                     .lookup_record(&location)
-                    .or_else(|| self.state.symbol_table.lookup_struct(&comp_ty.path.absolute_path()))
+                    .or_else(|| {
+                        self.state.symbol_table.lookup_struct(&Location::new(program, comp_ty.path.absolute_path()))
+                    })
                     .unwrap();
                 let mut instruction = "    cast ".to_string();
                 for member in &comp.members {

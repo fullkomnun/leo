@@ -177,6 +177,7 @@ impl ModuleConsumer for SsaFormingVisitor<'_> {
     type Output = Module;
 
     fn consume_module(&mut self, input: Module) -> Self::Output {
+        self.program = input.program_name;
         Module {
             path: input.path,
             program_name: self.program,

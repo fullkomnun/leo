@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with the Leo library. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{Identifier, IntegerType, Node, NodeBuilder, NodeID, Path, Type};
+use crate::{Identifier, IntegerType, Location, Node, NodeBuilder, NodeID, Path, Type};
 use leo_span::{Span, Symbol};
 
 use serde::{Deserialize, Serialize};
@@ -355,7 +355,7 @@ impl Expression {
         ty: &Type,
         span: Span,
         node_builder: &NodeBuilder,
-        struct_lookup: &dyn Fn(&[Symbol]) -> Vec<(Symbol, Type)>,
+        struct_lookup: &dyn Fn(&Location) -> Vec<(Symbol, Type)>,
     ) -> Option<Self> {
         let id = node_builder.next_id();
 
@@ -399,7 +399,10 @@ impl Expression {
             // Structs (composite types)
             Type::Composite(composite_type) => {
                 let path = &composite_type.path;
-                let members = struct_lookup(&path.absolute_path());
+                let members = struct_lookup(&Location::new(
+                    composite_type.program.expect("should have been resolved by now"),
+                    path.absolute_path(),
+                ));
 
                 let struct_members = members
                     .into_iter()

@@ -128,10 +128,10 @@ impl OptionLoweringVisitor<'_> {
         // reconstructed structs (local to this program) which is produced for all program scopes and all modules before
         // doing anything else.
         let reconstructed_structs = &self.reconstructed_structs;
-        let struct_lookup = |sym: &[Symbol]| {
+        let struct_lookup = |loc: &Location| {
             reconstructed_structs
-                .get(&Location::new(self.program, sym.to_vec())) // check the new version of existing structs
-                .or_else(|| self.new_structs.get(sym.last().unwrap())) // check the newly produced structs
+                .get(loc) // check the new version of existing structs
+                .or_else(|| self.new_structs.get(loc.path.last().unwrap())) // check the newly produced structs
                 .expect("must exist by construction")
                 .members
                 .iter()

@@ -38,8 +38,10 @@ impl StaticAnalyzingVisitor<'_> {
     }
 
     /// Emits a type checker warning
-    pub fn emit_warning(&self, warning: StaticAnalyzerWarning) {
-        self.state.handler.emit_warning(warning);
+    pub fn emit_warning(&mut self, warning: StaticAnalyzerWarning) {
+        if self.state.warnings.insert(warning.clone().into()) {
+            self.state.handler.emit_warning(warning);
+        }
     }
 
     /// Type checks the awaiting of a future.

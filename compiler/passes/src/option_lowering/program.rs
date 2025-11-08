@@ -32,6 +32,9 @@ use leo_span::Symbol;
 
 impl ProgramReconstructor for OptionLoweringVisitor<'_> {
     fn reconstruct_program(&mut self, input: Program) -> Program {
+        self.program =
+            *input.program_scopes.first().expect("a program must have a single program scope at this time.").0;
+
         // Reconstruct all structs first and keep track of them in `self.reconstructed_structs`.
         for (_, scope) in &input.program_scopes {
             for (_, c) in &scope.structs {

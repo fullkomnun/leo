@@ -26,6 +26,40 @@ use leo_span::{Span, Symbol, sym};
 
 use itertools::Itertools as _;
 
+/// Collects all symbol accesses within an async block,
+/// including both direct variable identifiers (`x`) and tuple field accesses (`x.0`, `x.1`, etc.).
+/// Each access is recorded as a pair: (Symbol, Option<usize>).
+/// - `None` means a direct variable access.
+/// - `Some(index)` means a tuple field access.
+struct SymbolAccessCollector<'a> {
+    state: &'a CompilerState,
+    symbol_accesses: IndexSet<(Vec<Symbol>, Option<usize>)>,
+}
+
+impl AstVisitor for SymbolAccessCollector<'_> {
+    type AdditionalInput = ();
+    type Output = ();
+
+    fn visit_path(&mut self, input: &Path, _: &Self::AdditionalInput) -> Self::Output {
+        self.symbol_accesses.insert((input.absolute_path(), None));
+    }
+
+    fn visit_tuple_access(&mut self, input: &TupleAccess, _: &Self::AdditionalInput) -> Self::Output {
+        // Here we assume that we can't have nested tuples which is currently guaranteed by type
+        // checking. This may change in the future.
+        if let Expression::Path(path) = &input.tuple {
+            // Futures aren't accessed by field; treat the whole thing as a direct variable
+            if let Some(Type::Future(_)) = self.state.type_table.get(&input.tuple.id()) {
+                self.symbol_accesses.insert((path.absolute_path(), None));
+            } else {
+                self.symbol_accesses.insert((path.absolute_path(), Some(input.index.value())));
+            }
+        } else {
+            self.visit_expression(&input.tuple, &());
+        }
+    }
+}
+
 impl TypeCheckingVisitor<'_> {
     // Returns the type of the RHS of an assign statement. Also returns whether the RHS is a storage location.
     // For now, the only possible storage location to assign to is a `Path` to a storage variable name.
@@ -670,6 +704,203 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
         // Step out of the async block
         self.async_block_id = None;
 
+        //// FILL MAP
+
+        // Step 2: Collect all symbol accesses in the async block
+        let mut access_collector = SymbolAccessCollector { state: self.state, symbol_accesses: IndexSet::new() };
+        access_collector.visit_async(&input, &());
+
+        // Stores mapping from accessed symbol (and optional index) to the expression used in replacement
+        let mut replacements: IndexMap<(Symbol, Option<usize>), Expression> = IndexMap::new();
+
+        // Helper to create a fresh `Identifier`
+        let make_identifier = |slf: &mut Self, symbol: Symbol| Identifier {
+            name: symbol,
+            span: Span::default(),
+            id: slf.state.node_builder.next_id(),
+        };
+
+        // Generates a set of `Input`s and corresponding call-site `Expression`s for a given symbol access.
+        //
+        // This function handles both:
+        // - Direct variable accesses (e.g., `foo`)
+        // - Tuple element accesses (e.g., `foo.0`)
+        //
+        // For tuple accesses:
+        // - If a single element (e.g. `foo.0`) is accessed, it generates a synthetic input like `"foo.0"`.
+        // - If the whole tuple (e.g. `foo`) is accessed, it ensures all elements are covered by:
+        //     - Reusing existing inputs from `replacements` if already generated via prior field access.
+        //     - Creating new inputs and arguments for any missing elements.
+        // - The entire tuple is reconstructed in `replacements` using the individual elements as a `TupleExpression`.
+        //
+        // This function also ensures deduplication by consulting the `replacements` map:
+        // - If a given `(symbol, index)` has already been processed, no duplicate input or argument is generated.
+        // - This prevents repeated parameters for accesses like both `foo` and `foo.0`.
+        //
+        // # Parameters
+        // - `symbol`: The symbol being accessed.
+        // - `var_type`: The type of the symbol (may be a tuple or base type).
+        // - `index_opt`: `Some(index)` for a tuple field (e.g., `.0`), or `None` for full-variable access.
+        //
+        // # Returns
+        // A `Vec<(Input, Expression)>`, where:
+        // - `Input` is a parameter for the generated async function.
+        // - `Expression` is the call-site argument expression used to invoke that parameter.
+        let mut make_inputs_and_arguments =
+            |slf: &mut Self, symbol: Symbol, var_type: &Type, index_opt: Option<usize>| -> Vec<(Input, Expression)> {
+                if replacements.contains_key(&(symbol, index_opt)) {
+                    return vec![]; // No new input needed; argument already exists
+                }
+
+                match index_opt {
+                    Some(index) => {
+                        let Type::Tuple(TupleType { elements }) = var_type else {
+                            panic!("Expected tuple type when accessing tuple field: {symbol}.{index}");
+                        };
+
+                        let synthetic_name = format!("\"{symbol}.{index}\"");
+                        let synthetic_symbol = Symbol::intern(&synthetic_name);
+                        let identifier = make_identifier(slf, synthetic_symbol);
+
+                        let input = Input {
+                            identifier,
+                            mode: leo_ast::Mode::None,
+                            type_: elements[index].clone(),
+                            span: Span::default(),
+                            id: slf.state.node_builder.next_id(),
+                        };
+
+                        replacements.insert((symbol, Some(index)), Path::from(identifier).into_absolute().into());
+
+                        vec![(
+                            input,
+                            TupleAccess {
+                                tuple: Path::from(make_identifier(slf, symbol)).into_absolute().into(),
+                                index: index.into(),
+                                span: Span::default(),
+                                id: slf.state.node_builder.next_id(),
+                            }
+                            .into(),
+                        )]
+                    }
+
+                    None => match var_type {
+                        Type::Tuple(TupleType { elements }) => {
+                            let mut inputs_and_arguments = Vec::with_capacity(elements.len());
+                            let mut tuple_elements = Vec::with_capacity(elements.len());
+
+                            for (i, element_type) in elements.iter().enumerate() {
+                                let key = (symbol, Some(i));
+
+                                // Skip if this field is already handled
+                                if let Some(existing_expr) = replacements.get(&key) {
+                                    tuple_elements.push(existing_expr.clone());
+                                    continue;
+                                }
+
+                                // Otherwise, synthesize identifier and input
+                                let synthetic_name = format!("\"{symbol}.{i}\"");
+                                let synthetic_symbol = Symbol::intern(&synthetic_name);
+                                let identifier = make_identifier(slf, synthetic_symbol);
+
+                                let input = Input {
+                                    identifier,
+                                    mode: leo_ast::Mode::None,
+                                    type_: element_type.clone(),
+                                    span: Span::default(),
+                                    id: slf.state.node_builder.next_id(),
+                                };
+
+                                let expr: Expression = Path::from(identifier).into_absolute().into();
+
+                                replacements.insert(key, expr.clone());
+                                tuple_elements.push(expr.clone());
+                                inputs_and_arguments.push((
+                                    input,
+                                    TupleAccess {
+                                        tuple: Path::from(make_identifier(slf, symbol)).into_absolute().into(),
+                                        index: i.into(),
+                                        span: Span::default(),
+                                        id: slf.state.node_builder.next_id(),
+                                    }
+                                    .into(),
+                                ));
+                            }
+
+                            // Now insert the full tuple (even if all fields were already there)
+                            replacements.insert(
+                                (symbol, None),
+                                Expression::Tuple(TupleExpression {
+                                    elements: tuple_elements,
+                                    span: Span::default(),
+                                    id: slf.state.node_builder.next_id(),
+                                }),
+                            );
+
+                            inputs_and_arguments
+                        }
+
+                        _ => {
+                            let identifier = make_identifier(slf, symbol);
+                            let input = Input {
+                                identifier,
+                                mode: leo_ast::Mode::None,
+                                type_: var_type.clone(),
+                                span: Span::default(),
+                                id: slf.state.node_builder.next_id(),
+                            };
+
+                            replacements.insert((symbol, None), Path::from(identifier).into_absolute().into());
+
+                            let argument = Path::from(make_identifier(slf, symbol)).into_absolute().into();
+                            vec![(input, argument)]
+                        }
+                    },
+                }
+            };
+
+        // Step 3: Resolve symbol accesses into inputs and call arguments
+        let (inputs, arguments): (Vec<_>, Vec<_>) = access_collector
+            .symbol_accesses
+            .iter()
+            .filter_map(|(path, index)| {
+                // Skip globals and variables that are local to this block or to one of its children.
+
+                // Skip globals.
+                if self
+                    .state
+                    .symbol_table
+                    .lookup_global(&Location::new(self.scope_state.program_name.unwrap(), path.to_vec()))
+                    .is_some()
+                {
+                    return None;
+                }
+
+                // Skip variables that are local to this block or to one of its children.
+                let local_var_name = *path.last().expect("all paths must have at least one segment.");
+                if self.state.symbol_table.is_local_to_or_in_child_scope(input.block.id(), local_var_name) {
+                    return None;
+                }
+
+                // All other variables become parameters to the async function being built.
+                let var = self.state.symbol_table.lookup_local(local_var_name)?;
+                Some(make_inputs_and_arguments(self, local_var_name, &var.type_, *index))
+            })
+            .flatten()
+            .unzip();
+
+        let types = inputs.iter().map(|Input { type_, .. }| type_.clone()).collect();
+
+        self.async_function_input_types.insert(
+            Location::new(self.scope_state.program_name.unwrap(), vec![Symbol::intern(&format!(
+                "finalize/{}",
+                self.scope_state.function.unwrap(),
+            ))]),
+            types,
+        );
+
+        // TODO: MOVE THE CODE BLOCK ABOVE TO A SEPARATE FUNCTION
+
         // The type of the async block is just a `Future` with no `Location` (i.e. not produced by an explicit `async
         // function`) and no inputs since we're not allowed to access inputs of a `Future` produced by an `async block.
         Type::Future(FutureType::new(Vec::new(), None, false))
@@ -1180,47 +1411,6 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             self.visit_expression(argument, &Some(expected.type_().clone()));
         }
 
-        if func.variant == Variant::AsyncFunction {
-            let finalize_input_map = &mut self.async_function_input_types;
-
-            // Only proceed if *all* Future inputs have corresponding finalize entries.
-            let proceed = func.input.iter().all(|input| {
-                match &input.type_ {
-                    Type::Future(f) => {
-                        if let Some(loc) = f.location.as_ref() {
-                            finalize_input_map.get(loc).is_some()
-                        } else {
-                            false // location missing ⇒ can't proceed
-                        }
-                    }
-                    _ => true, // non-Future inputs are fine
-                }
-            });
-
-            if proceed {
-                let resolved_inputs: Vec<Type> = func
-                    .input
-                    .iter()
-                    .map(|input| match &input.type_ {
-                        Type::Future(f) => Type::Future(FutureType::new(
-                            finalize_input_map.get(f.location.as_ref().unwrap()).unwrap().clone(),
-                            f.location.clone(),
-                            true,
-                        )),
-                        _ => input.clone().type_,
-                    })
-                    .collect();
-
-                finalize_input_map.insert(
-                    Location::new(self.scope_state.program_name.unwrap(), vec![Symbol::intern(&format!(
-                        "finalize/{}",
-                        self.scope_state.function.unwrap()
-                    ))]),
-                    resolved_inputs,
-                );
-            }
-        }
-
         let (mut input_futures, mut inferred_finalize_inputs) = (Vec::new(), Vec::new());
         for (expected, argument) in func.input.iter().zip(input.arguments.iter()) {
             // Get the type of the expression. If the type is not known, do not attempt to attempt any further inference.
@@ -1342,7 +1532,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             self.state
                 .symbol_table
                 .attach_finalizer(
-                    Location::new(callee_program, caller_path),
+                    Location::new(callee_program, caller_path.clone()),
                     Location::new(callee_program, callee_path.clone()),
                     input_futures,
                     inferred_finalize_inputs.clone(),
@@ -1359,10 +1549,18 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
 
             // Update ret to reflect fully inferred future type.
             ret = Type::Future(FutureType::new(
-                inferred_finalize_inputs,
+                inferred_finalize_inputs.clone(),
                 Some(Location::new(callee_program, callee_path.clone())),
                 true,
             ));
+
+            self.async_function_input_types.insert(
+                Location::new(callee_program, vec![Symbol::intern(&format!(
+                    "finalize/{}",
+                    caller_path.last().unwrap()
+                ))]),
+                inferred_finalize_inputs.clone(),
+            );
 
             // Type check in case the expected type is known.
             self.assert_and_return_type(ret.clone(), expected, input.span());
