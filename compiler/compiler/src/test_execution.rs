@@ -17,18 +17,13 @@
 use crate::run_with_ledger;
 
 use leo_ast::NodeBuilder;
-use leo_disassembler::disassemble_from_str;
 use leo_errors::{BufferEmitter, Handler, Result};
 use leo_span::{Symbol, create_session_if_not_set_then};
-
-use snarkvm::prelude::TestnetV0;
 
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use serial_test::serial;
 use std::{fmt::Write as _, rc::Rc};
-
-type CurrentNetwork = TestnetV0;
 
 // Execution test configuration.
 #[derive(Debug)]

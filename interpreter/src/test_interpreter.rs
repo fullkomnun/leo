@@ -16,9 +16,8 @@
 
 //! These tests compare interpreter runs against ledger runs.
 
-use leo_ast::{NetworkName, Stub, interpreter_value::Value};
+use leo_ast::{NetworkName, NodeBuilder, Program, Stub, interpreter_value::Value};
 use leo_compiler::{Compiler, run_with_ledger};
-use leo_disassembler::disassemble_from_str;
 use leo_errors::{BufferEmitter, Handler, Result};
 use leo_span::{Symbol, create_session_if_not_set_then, source_map::FileName};
 
@@ -29,6 +28,7 @@ use itertools::Itertools as _;
 use std::{
     fs,
     path::{Path, PathBuf},
+    rc::Rc,
     str::FromStr,
 };
 use walkdir::WalkDir;
@@ -39,11 +39,17 @@ const PROGRAM_DELIMITER: &str = "// --- Next Program --- //";
 
 type CurrentNetwork = TestnetV0;
 
-fn whole_compile(source: &str, handler: &Handler, import_stubs: IndexMap<Symbol, Stub>) -> Result<(String, String)> {
+fn whole_compile(
+    source: &str,
+    handler: &Handler,
+    node_builder: &Rc<NodeBuilder>,
+    import_stubs: IndexMap<Symbol, Stub>,
+) -> Result<(Program, String, String)> {
     let mut compiler = Compiler::new(
         None,
         /* is_test (a Leo test) */ false,
         handler.clone(),
+        node_builder.clone(),
         "/fakedirectory-wont-use".into(),
         None,
         import_stubs,
@@ -52,9 +58,9 @@ fn whole_compile(source: &str, handler: &Handler, import_stubs: IndexMap<Symbol,
 
     let filename = FileName::Custom("execution-test".into());
 
-    let bytecode = compiler.compile(source, filename, &Vec::new())?;
+    let (program, bytecode) = compiler.compile(source, filename, &Vec::new())?;
 
-    Ok((bytecode, compiler.program_name.unwrap()))
+    Ok((program, bytecode, compiler.program_name.unwrap()))
 }
 
 fn parse_cases(source: &str) -> (Vec<run_with_ledger::Case>, Vec<String>) {
@@ -88,19 +94,25 @@ pub struct TestResult {
     interpreter_result: Vec<Value>,
 }
 
-fn run_test(path: &Path, handler: &Handler, _buf: &BufferEmitter) -> Result<TestResult, ()> {
+fn run_test(
+    path: &Path,
+    handler: &Handler,
+    node_builder: &Rc<NodeBuilder>,
+    _buf: &BufferEmitter,
+) -> Result<TestResult, ()> {
     let source = fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read file {}: {e}.", path.display()));
     let (cases, sources) = parse_cases(&source);
     let mut import_stubs = IndexMap::new();
     let mut ledger_config = run_with_ledger::Config { seed: 2, start_height: None, programs: Vec::new() };
     for source in &sources {
-        let (bytecode, name) = handler.extend_if_error(whole_compile(source, handler, import_stubs.clone()))?;
+        let (program, bytecode, name) =
+            handler.extend_if_error(whole_compile(source, handler, &Rc::clone(node_builder), import_stubs.clone()))?;
 
-        let stub = handler
-            .extend_if_error(disassemble_from_str::<CurrentNetwork>(&name, &bytecode).map_err(|err| err.into()))?;
-        import_stubs.insert(Symbol::intern(&name), stub);
+        //        let stub = handler
+        //            .extend_if_error(disassemble_from_str::<CurrentNetwork>(&name, &bytecode).map_err(|err| err.into()))?;
+        import_stubs.insert(Symbol::intern(&name), program.into());
 
-        ledger_config.programs.push(run_with_ledger::Program { bytecode, name });
+        ledger_config.programs.push(run_with_ledger::Program { bytecode, name: name.to_string() });
     }
 
     // Note. We wrap the cases in a slice to run them on a single ledger instance.
@@ -177,7 +189,8 @@ fn test_interpreter() {
             let mut test_result = {
                 let buf = BufferEmitter::new();
                 let handler = Handler::new(buf.clone());
-                match run_test(path, &handler, &buf) {
+                let node_builder = Rc::new(NodeBuilder::default());
+                match run_test(path, &handler, &node_builder, &buf) {
                     Ok(result) => result,
                     Err(..) => {
                         let errs = buf.extract_errs();

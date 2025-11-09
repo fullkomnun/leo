@@ -708,7 +708,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
 
         // Step 2: Collect all symbol accesses in the async block
         let mut access_collector = SymbolAccessCollector { state: self.state, symbol_accesses: IndexSet::new() };
-        access_collector.visit_async(&input, &());
+        access_collector.visit_async(input, &());
 
         // Stores mapping from accessed symbol (and optional index) to the expression used in replacement
         let mut replacements: IndexMap<(Symbol, Option<usize>), Expression> = IndexMap::new();
@@ -860,7 +860,7 @@ impl AstVisitor for TypeCheckingVisitor<'_> {
             };
 
         // Step 3: Resolve symbol accesses into inputs and call arguments
-        let (inputs, arguments): (Vec<_>, Vec<_>) = access_collector
+        let (inputs, _): (Vec<_>, Vec<_>) = access_collector
             .symbol_accesses
             .iter()
             .filter_map(|(path, index)| {

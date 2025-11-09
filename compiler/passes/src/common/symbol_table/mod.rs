@@ -469,6 +469,7 @@ impl SymbolTable {
     }
 }
 
+#[allow(dead_code)]
 fn eq_struct(new: &Composite, old: &Composite) -> bool {
     if new.members.len() != old.members.len() {
         return false;

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with the Leo library. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{CompilerState, Pass, SymbolTable, VariableSymbol, VariableType};
+use crate::{CompilerState, Pass, VariableSymbol, VariableType};
 
 use leo_ast::{
     AleoProgram,
@@ -74,6 +74,7 @@ struct SymbolTableCreationVisitor<'a> {
     /// The current module name.
     module: Vec<Symbol>,
     /// The set of local structs that have been successfully visited.
+    #[allow(dead_code)]
     structs: IndexMap<Vec<Symbol>, Span>,
 }
 

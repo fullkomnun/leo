@@ -117,7 +117,7 @@ impl TypeCheckingVisitor<'_> {
         if actual != &Type::Err && !actual.can_coerce_to(expected) {
             // If `actual` is Err, we will have already reported an error.
             // Helper closure to strip the program if it matches current scope
-            self.emit_err(TypeCheckerError::type_should_be2(&actual, format!("type `{expected}`"), span));
+            self.emit_err(TypeCheckerError::type_should_be2(actual, format!("type `{expected}`"), span));
         }
     }
 

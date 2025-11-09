@@ -146,19 +146,17 @@ fn handle_build(command: &LeoBuild, context: Context) -> Result<<LeoBuild as Com
                 let build_path = imports_directory.join(format!("{}.aleo", program.name));
 
                 // Write the .aleo file.
-                std::fs::write(build_path, &bytecode).map_err(CliError::failed_to_load_instructions)?;
+                std::fs::write(build_path, bytecode).map_err(CliError::failed_to_load_instructions)?;
 
                 // Track the Stub.
                 let stub = match network {
                     NetworkName::MainnetV0 => {
-                        leo_disassembler::disassemble_from_str::<MainnetV0>(program.name, &bytecode)
+                        leo_disassembler::disassemble_from_str::<MainnetV0>(program.name, bytecode)
                     }
                     NetworkName::TestnetV0 => {
-                        leo_disassembler::disassemble_from_str::<TestnetV0>(program.name, &bytecode)
+                        leo_disassembler::disassemble_from_str::<TestnetV0>(program.name, bytecode)
                     }
-                    NetworkName::CanaryV0 => {
-                        leo_disassembler::disassemble_from_str::<CanaryV0>(program.name, &bytecode)
-                    }
+                    NetworkName::CanaryV0 => leo_disassembler::disassemble_from_str::<CanaryV0>(program.name, bytecode),
                 }?;
 
                 stubs.insert(program.name, Stub::FromAleo(stub));
